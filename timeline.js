@@ -12,6 +12,8 @@
         this.container = settings.container;
         this.width = settings.width;
         this.height = settings.height;
+        this.date = settings.date || new Date();
+        this.data = settings.data || [];
         this.svg = null;
         this.structure = {};
         this.init(settings);
@@ -67,13 +69,85 @@
             data: settings.ticks,
             ticksGroup: this.paper.rect()
         };
-        this._setTickPattern();
+        this.tooltip = new TimelineTooltip({
+            paper: this.paper,
+            text: "Test text"
+        });
         
+        this.timelineGroup = this.paper.g(this.structure.line, this.structure.ticks.ticksGroup);
+        
+        this._bindEvents();
         this.container.appendChild(this.paper.node);
     };
     
+    Timeline.prototype._bindEvents = function () {
+        this.paper.mousemove(this._onMouseMove.bind(this));
+        this.paper.mouseover(this._onMouseOver.bind(this));
+        this.paper.mouseout(this._onMouseOut.bind(this));
+        this.paper.click(this._onClick.bind(this));
+    };
+    
+    Timeline.prototype._onMouseMove = function (evt) {
+        switch (event.target) {
+            case this.timelineGroup.node:
+                this.tooltip.setPosition(evt.layerX, this.height / 2 + 50);
+                break;
+        }
+    };
+    
+    Timeline.prototype._onMouseOver = function (evt) {
+        switch (event.target) {
+            case this.timelineGroup.node:
+                this.tooltip.show();
+                break;
+        }
+    };
+    
+    Timeline.prototype._onMouseOut = function (evt) {
+        switch (event.target) {
+            case this.timelineGroup.node:
+                this.tooltip.hide();
+                break;
+        }
+    };
+    
+    Timeline.prototype._onClick = function () {
+        switch (event.target) {
+            case this.structure.arrows.left.node:
+                var nextHour = new Date(this.date.toISOString());
+                nextHour.setHours(nextHour.getHours() + 1);
+                this.setDate(nextHour);
+                break;
+            case this.structure.arrows.right.node:
+                var prevHour = new Date(this.date.toISOString());
+                prevHour.setHours(prevHour.getHours() - 1);
+                this.setDate(prevHour);
+                break;
+        }
+    };
+    
+    Timeline.prototype.setDate = function (date) {
+        var blocks = this.data,
+            pattern = this.structure.ticks.pattern,
+            patternWidth = +pattern.attr("width"),
+            currentShift = +pattern.attr("x");
+            
+        Snap.animate(
+            currentShift,
+            currentShift + Math.round((patternWidth / 60) * (date.getTime() - this.date.getTime()) / 60000),
+            function (value) {
+                pattern.attr({ x: value });
+                for (var i = 0; i < blocks.length; i++) {
+                    blocks[i].block.attr({ x: value });
+                }
+            },
+            300
+        );
+        this.date = date;
+    };
+    
     Timeline.prototype._setTickPattern = function () {
-        var patternWidthStep = Math.round(this.width / 48);
+        var patternWidthStep = Math.round(this._model.line.measures.width / 48);
         var tickWidth = this.structure.ticks.data.style["stroke-width"];
         var shift = (tickWidth % 2) * 0.5;
         var tickGroup = this.paper.g(
@@ -98,43 +172,71 @@
                 x2: 4 * patternWidthStep + shift,     y2: 12,
             }).attr(this.structure.ticks.data.style)
         );
-        this.structure.ticks.ticksGroup.attr({ fill: tickGroup.toPattern(40, 0, 4 * patternWidthStep, 15) });
+        this.structure.ticks.pattern = tickGroup.toPattern(0, 0, 4 * patternWidthStep, 15);
+        this.structure.ticks.pattern.attr({ x: this._model.ticks.attr.x });
+        this.structure.ticks.ticksGroup.attr({ fill: this.structure.ticks.pattern });
+    };
+    
+    Timeline.prototype._calcBlocks = function () {
+        if (this.data) {
+            var pattern = this.structure.ticks.pattern,
+                patternWidth = +pattern.attr("width");
+                
+            for (var i = 0; i < this.data.length; i++) {
+                if (!this.data[i].block) {
+                    this.data[i].block = this.paper.rect();
+                    this.data[i].dirty = true;
+                }
+                if (this.data[i].dirty) {
+                    var timeLength = Math.round((this.data[i].to.getTime() - this.data[i].from.getTime()) / 60000);
+                    this.data[i].block.attr({
+                        x: this._model.ticks.attr.x + Math.round((patternWidth / 60) * (this.data[i].to.getTime() - this.date.getTime()) / 60000),
+                        y: 0,
+                        height: 15,
+                        width: timeLength * this._model.line.measures.units,
+                        fill: this.data[i].color
+                    });
+                }
+            }
+        }
     };
     
     Timeline.prototype.setSize = function (width, height) {
         if (width) {
-            if (isNaN(width)) {
-                throw new TypeError("width is not a number");
-                return;
-            } else {
-                this.width = width;
-            }
+            this.width = width;
         } else if (!this.width) {
             this.width = this.container.offsetWidth;
         }
         
         if (height) {
-            if (isNaN(height)) {
-                throw new TypeError("height is not a number");
-                return;
-            } else {
-                this.height = height;
-            }
+            this.height = height;
         } else if (!this.height) {
             this.height = this.container.offsetHeight;
         }
     };
     
-    Timeline.prototype.drawLine = function () {
-        var arrowsStyle = this.structure.arrows.data.style;
-        this.structure.line.attr({
-            x1: arrowsStyle.width,       x2: this.width - arrowsStyle.width,
-            y1: this.height / 2,    y2: this.height / 2
-        });
-        this.structure.ticks.ticksGroup.attr({
-            x: arrowsStyle.width,       width: this.width - 2 * arrowsStyle.width,
-            y: this.height / 2 + 10,    height: 15
-        });
+    Timeline.prototype._calcLine = function () {
+        var arrowsStyle = this.structure.arrows.data.style,
+            arrowsWidth = arrowsStyle.width || 0;
+            
+        this._model = this._model || {};
+        this._model.line = {
+            measures: {
+                width: this.width - 2 * arrowsWidth,
+                units: (this.width - 2 * arrowsWidth) / 720          // 12 * 60 minutes
+            },
+            attr: {
+                x1: arrowsWidth,       x2: this.width - arrowsWidth,
+                y1: this.height / 2,         y2: this.height / 2
+            }
+        };
+        this._model.ticks = {
+            attr: {
+                x: arrowsWidth,       width: this._model.line.measures.width,
+                y: this.height / 2 + 10,    height: 15
+            }
+        };
+        this._setTickPattern();
     };
     
     Timeline.prototype.drawArrows = function () {
@@ -159,9 +261,39 @@
     };
     
     Timeline.prototype.draw = function () {
-        this.drawLine();
+        this._calcLine();
+        this._calcBlocks();
+        this.structure.line.attr(this._model.line.attr);
+        this.structure.ticks.ticksGroup.attr(this._model.ticks.attr);
         this.drawArrows();
     }
+    
+    var TimelineTooltip = function (settings) {
+        this.paper = settings.paper;
+        this.label = this.paper.text(0, 0, settings.text);
+        this.label.attr(settings.textSyle);
+        this.box = this.paper.rect();
+        this.group = this.paper.g(this.label, this.box);
+        this.group.attr({ visibility: "hidden" });
+    };
+    
+    TimelineTooltip.prototype.hide = function () {
+        this.group.attr({ visibility: "hidden" });
+    };
+    
+    TimelineTooltip.prototype.show = function () {
+        this.group.attr({ visibility: "visible" });
+    };
+    
+    TimelineTooltip.prototype.setPosition = function (x, y) {
+        this.group.attr({
+            transform: "translate(" + x + ", " + y + ")"
+        });
+    };
+    
+    TimelineTooltip.prototype.setText = function (text) {
+        
+    };
     
     global.Timeline = Timeline;
 })(window);

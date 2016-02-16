@@ -12,8 +12,19 @@
     <script src="../3side/snap.svg-min.js"></script>
     <script src="timeline.js"></script>
     <script>
+      var from = new Date();
+      var to = new Date();
+      from.setHours(9);
+      to.setHours(12);
+      
       new Timeline({
-        container: document.querySelector("#container")
+        container: document.querySelector("#container"),
+        date: new Date(),
+        data: [{
+          from: from,
+          to: to,
+          color: "#F00"
+        }]
       });
     </script>
   </body>
