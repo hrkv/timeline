@@ -15,6 +15,7 @@
         this.date = settings.date || new Date();
         this.data = settings.data || [];
         this.structure = {};
+        this.events = {};
         this.init(settings);
         this.draw();
     };
@@ -69,6 +70,7 @@
             settings[prop] = Object.assign({}, settings[prop], Timeline.defaults[prop]);
             settings[prop].style = Object.assign({}, settings[prop].style, Timeline.defaults[prop].style);
         }
+        settings.events = settings.events || {};
             
         this.paper = Snap();
         this.structure = {
@@ -81,6 +83,10 @@
             },
             ticks: this.paper.rect(),
             labels: this.paper.rect()
+        };
+
+        this.events = {
+            timeChanged: settings.events.timeChanged && [].concat(settings.events.timeChanged) || []
         };
 
         this.eventDom = {
@@ -122,6 +128,13 @@
         this.setSize(settings.width, settings.height);
     };
     
+    Timeline.prototype.fireEvent = function (name, args) {
+        if (this.events[name]) {
+            for (var i = 0; i < this.events[name].length; i++)
+                this.events[name][i](args);
+        }
+    };
+
     Timeline.prototype._time2coord = function (time) {
 
         var startCoordTime = new Date(this.date.toISOString());
@@ -135,6 +148,13 @@
             time = new Date(this.date.toISOString());
         time.setMinutes(time.getMinutes() + minutes);
         return time;
+    };
+
+    Timeline.prototype._time2string = function (time) {
+        return [
+            ('0' + time.getHours()).slice(-2),
+            ('0' + time.getMinutes()).slice(-2)
+        ].join(':');
     };
 
     Timeline.prototype._bindEvents = function () {
@@ -151,7 +171,7 @@
             case this.eventDom.line.node:
                 var coord = evt.layerX - this.paper.node.getBoundingClientRect().left;
                 this.tooltip.setPosition(coord, 15);
-                this.tooltip.setText(this._coord2time(coord).toLocaleTimeString());
+                this.tooltip.setText(this._time2string(this._coord2time(coord)));
                 break;
         }
     };
@@ -211,8 +231,14 @@
             300
         );
 
+        var eventArgs = {
+            oldValue: this.date,
+            newValue: date
+        };
         this.date = date;
         this.units.shift += shift;
+
+        this.fireEvent("timeChanged", eventArgs);
     };
     
     Timeline.prototype._buildLabelsPattern = function () {
@@ -241,7 +267,7 @@
 
             pattern = pattern.toPattern(0, 0, 24 * this.units.hour, this.model.viewPort.height);
             pattern.attr({
-                x: this.model.viewPort.x + this.units.shift,
+                x: this.units.shift,
                 y: this.model.labels.y
             });
             labels.attr({ fill: pattern });
@@ -279,7 +305,7 @@
                 }).attr(ticksStyle)
             )
             .toPattern(0, 0, 4 * patternWidthStep, 15)
-            .attr({ x: this.model.viewPort.x + this.units.shift });
+            .attr({ x: this.units.shift });
 
         this.structure.ticks.attr({ fill: pattern });
         this.structure.ticks.data("pattern", pattern);
@@ -334,11 +360,14 @@
         };
 
         var viewPort = this.model.viewPort;
+        var startDate = new Date(this.date.toISOString());
+        startDate.setHours(0, 0, 0, 0);
+
         this.units = {
             hour: viewPort.width / 12,
             minutes: viewPort.width / 720,
+            shift: viewPort.x + Math.round(viewPort.width / 720 * (startDate.getTime() - this.date.getTime()) / 60000)
         };
-        this.units.shift = this._time2coord(this.date);
 
         this.model.line = {
             x1: viewPort.x, y1: viewPort.height / 2,
