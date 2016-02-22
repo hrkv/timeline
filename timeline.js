@@ -13,7 +13,7 @@
         this.width = settings.width;
         this.height = settings.height;
         this.date = settings.date || new Date();
-        this.data = settings.data || [];
+        this.data = [];
         this.structure = {};
         this.events = {};
         this.init(settings);
@@ -56,10 +56,8 @@
         },
         blocks: {
             style: {
-                stroke: "#777",
-                "stroke-width": 2,
-                rx: 1,
-                ry: 1
+                rx: 10,
+                ry: 10
             }
         }
     };
@@ -88,7 +86,6 @@
         this.events = {
             timeChanged: settings.events.timeChanged && [].concat(settings.events.timeChanged) || []
         };
-
         this.eventDom = {
             arrows: {
                 left: this.paper.rect(),
@@ -98,15 +95,15 @@
         };
         this.eventDom.body = this.paper.g(
             this.eventDom.arrows.left.attr({
-                id: "left-arrow",
+                tag: "left-arrow",
                 fill: "transparent"
             }),
             this.eventDom.arrows.right.attr({
-                id: "right-arrow",
+                tag: "right-arrow",
                 fill: "transparent"
             }),
             this.eventDom.line.attr({
-                id: "line",
+                tag: "line",
                 fill: "transparent"
             })
         );
@@ -123,6 +120,15 @@
             text: "Test text"
         });
         
+        if (settings.data) {
+            for (var i = 0; i < settings.data.length; i++) {
+                this.data.push(new TimeBlock(Object.assign({}, settings.data[i], {
+                    parent: this.structure.blocks,
+                    style: Timeline.defaults.blocks.style
+                })));
+            }
+        }
+
         this._bindEvents();
         this.container.appendChild(this.paper.node);
         this.setSize(settings.width, settings.height);
@@ -151,10 +157,22 @@
     };
 
     Timeline.prototype._time2string = function (time) {
+
         return [
             ('0' + time.getHours()).slice(-2),
             ('0' + time.getMinutes()).slice(-2)
         ].join(':');
+    };
+
+    Timeline.prototype._node2block = function (node) {
+
+        for (var i = 0; i < this.data.length; i++) {
+            if (this.data[i].block.node === node) {
+                return this.data[i];
+            }
+        }
+        
+        return null;
     };
 
     Timeline.prototype._bindEvents = function () {
@@ -162,50 +180,112 @@
         this.paper.mousemove(this._onMouseMove.bind(this));
         this.paper.mouseover(this._onMouseOver.bind(this));
         this.paper.mouseout(this._onMouseOut.bind(this));
+        this.paper.mousedown(this._onMouseDown.bind(this));
+        this.paper.mouseup(this._onMouseUp.bind(this));
         this.paper.click(this._onClick.bind(this));
     };
     
     Timeline.prototype._onMouseMove = function (evt) {
 
-        switch (event.target) {
-            case this.eventDom.line.node:
+        switch (event.target.getAttribute("tag")) {
+            case "line":
                 var coord = evt.layerX - this.paper.node.getBoundingClientRect().left;
-                this.tooltip.setPosition(coord, 15);
-                this.tooltip.setText(this._time2string(this._coord2time(coord)));
+                if (this.activeBlock && this.activeBlock.getIsEditable()) {
+                    this.activeBlock.changeEditableProperty(coord);
+                } else {
+                    this.tooltip.setPosition(coord, 15);
+                    this.tooltip.setText(this._time2string(this._coord2time(coord)));
+                }
+                break;
+            default:
+                var coord = evt.layerX - this.paper.node.getBoundingClientRect().left;
+                if (this.activeBlock && this.activeBlock.getIsEditable()) {
+                    this.activeBlock.changeEditableProperty(coord);
+                }
                 break;
         }
     };
     
     Timeline.prototype._onMouseOver = function (evt) {
 
-        switch (event.target) {
-            case this.eventDom.line.node:
+        switch (event.target.getAttribute("tag")) {
+            case "line":
                 this.tooltip.show();
+                break;
+            case "block":
+                this.hoveredBlock = this._node2block(event.target);
                 break;
         }
     };
     
     Timeline.prototype._onMouseOut = function (evt) {
 
-        switch (event.target) {
-            case this.eventDom.line.node:
+        switch (event.target.getAttribute("tag")) {
+            case "line":
                 this.tooltip.hide();
+                break;
+            case "block":
+                this.hoveredBlock = null;
                 break;
         }
     };
     
+    Timeline.prototype._onMouseDown = function (evt) {
+
+        switch (event.target.getAttribute("tag")) {
+            case "dragger-left":
+                if (this.activeBlock) {
+                    this.activeBlock.setPositionIsEditable(true);
+                }
+                break;
+            case "dragger-right":
+                if (this.activeBlock) {
+                    this.activeBlock.setWidthIsEditable(true);
+                }
+                break;
+        }
+    };
+
+    Timeline.prototype._onMouseUp = function (evt) {
+
+        switch (event.target.getAttribute("tag")) {
+            case "dragger-left":
+            case "dragger-right":
+                if (this.activeBlock) {
+                    this.activeBlock.setIsEditable(false);
+                }
+                break;
+            default:
+                if (this.activeBlock) {
+                    this.activeBlock.setIsEditable(false);
+                }
+                break;
+        }
+    };
+
     Timeline.prototype._onClick = function () {
 
-        switch (event.target) {
-            case this.eventDom.arrows.left.node:
+        switch (event.target.getAttribute("tag")) {
+            case "left-arrow":
                 var nextHour = new Date(this.date.toISOString());
                 nextHour.setHours(nextHour.getHours() - 3);
                 this.setDate(nextHour);
                 break;
-            case this.eventDom.arrows.right.node:
+            case "right-arrow":
                 var prevHour = new Date(this.date.toISOString());
                 prevHour.setHours(prevHour.getHours() + 3);
                 this.setDate(prevHour);
+                break;
+            case "block":
+                if (this.hoveredBlock) {
+                    if (this.activeBlock) {
+                        this.activeBlock.setIsActive(false);
+                        this.activeBlock = null;
+                    } else {
+                        this.activeBlock = this.hoveredBlock;
+                        this.activeBlock.setIsActive(true);
+                    }
+                }
                 break;
         }
     };
@@ -313,25 +393,17 @@
     
     Timeline.prototype._buildBlocks = function () {
 
-        var settings = this.structure.blocks.data("settings"),
-            blocks = [];
+        var blocks = [];
 
-        if (this.data) {
-            for (var i = 0; i < this.data.length; i++) {
-                var item = this.data[i];
-                if (!item.block) {
-                    var block = item.block = this.structure.blocks.rect();
-                    item.blockContainer = this.structure.blocks.g(block);
-                    item.block.attr(settings.style);
-                }
-                blocks.push({
-                    x: this._time2coord(item.from),
-                    y: this.height / 2 - 20,
-                    height: 15,
-                    width: Math.round(this.units.minutes * (item.to.getTime() - item.from.getTime()) / 60000),
-                    fill: item.color
-                });
-            }
+        for (var i = 0; i < this.data.length; i++) {
+            var item = this.data[i];
+            blocks.push({
+                x: this._time2coord(item.from),
+                y: this.height / 2 - 30,
+                height: 25,
+                width: Math.round(this.units.minutes * (item.to.getTime() - item.from.getTime()) / 60000),
+                fill: item.color
+            });
         }
 
         return blocks;
@@ -433,16 +505,12 @@
         this.structure.viewPort.parent().attr({ transform: "translate(" + -this.units.shift + ")" });
         this.structure.blocks.attr({ transform: "translate(" + this.units.shift + ")" });
         for (var i = 0; i < this.data.length; i++) {
-            if (this.data[i].block) {
-                this.data[i].block.attr({
-                    width: this.model.blocks[i].width,
-                    height: this.model.blocks[i].height,
-                    fill: this.model.blocks[i].fill
-                });
-                this.data[i].blockContainer.attr({
-                    transform: "translate(" + [this.model.blocks[i].x, this.model.blocks[i].y].join() + ")"
-                });
-            }
+            this.data[i].block.attr({
+                width: this.model.blocks[i].width,
+                height: this.model.blocks[i].height,
+                fill: this.model.blocks[i].fill
+            });
+            this.data[i].setPosition({ x: this.model.blocks[i].x, y: this.model.blocks[i].y });
         }
 
         this.eventDom.arrows.left.attr(this.eventModel.arrows.left);
@@ -483,20 +551,108 @@
     };
 
     var TimeBlock = function (settings) {
+
         this.from = settings.from;
         this.to = settings.to;
+        this.color = settings.color;
         this.tag = settings.tag;
         this.text = settings.text;
         this.parent = settings.parent;
         this.style = settings.style;
         this.attr = settings.attr;
         this.block = null;
+        this.isActive = false;
+        this.isEditable = false;
+        this._editableProperty = null;
+        this.markers = null;
+        this.position = null;
+        this.init();
     };
 
     TimeBlock.prototype.init = function () {
+
         this.block = this.parent.rect()
             .attr(this.style)
-            .attr(this.attr);
+            .attr({
+                tag: "block",
+                fill: this.color,
+                instance: this
+            });
+        this.blockGroup = this.parent.g(this.block);
+    };
+
+    TimeBlock.prototype.setPosition = function (coord) {
+
+        this.position = coord;
+        this.blockGroup.attr({ transform: "translate(" + [coord.x, coord.y].join() + ")" });
+    };
+
+    TimeBlock.prototype.setWidth = function (value) {
+        this.block.attr({ width: value });
+        if (this.markers) {
+            this.markers.end.attr({ cx: value });
+        }
+    };
+
+    TimeBlock.prototype.setIsActive = function (value) {
+
+        this.isActive = value;
+        if (!this.markers) {
+            this.markers = {
+                start: this.blockGroup.circle()
+                           .attr({
+                               tag: "dragger-left",
+                               cy: 0, r: 10,
+                               fill: "orange"
+                           }),
+                end: this.blockGroup.circle()
+                           .attr({
+                               tag: "dragger-right",
+                               cy: 0, r: 10,
+                               fill: "orange"
+                           })
+            };
+        }
+        if (value) {
+            this.markers.start.attr({ visibility: "visible" });
+            this.markers.end.attr({
+                visibility: "visible",
+                cx: +this.block.attr("width"),
+            });
+        } else {
+            this.markers.start.attr({ visibility: "hidden" });
+            this.markers.end.attr({ visibility: "hidden" });
+        }
+    };
+
+    TimeBlock.prototype.switchState = function () {
+        this.setIsActive(!this.isActive);
+    };
+
+    TimeBlock.prototype.setIsEditable = function (value) {
+        this.isEditable = value;
+    };
+
+    TimeBlock.prototype.setPositionIsEditable = function (value) {
+        this.setIsEditable(value);
+        this._editableProperty = value ? "x" : null;
+    };
+
+    TimeBlock.prototype.setWidthIsEditable = function (value) {
+        this.setIsEditable(value);
+        this._editableProperty = value ? "width" : null;
+    };
+
+    TimeBlock.prototype.getIsEditable = function () {
+        return this.isEditable;
+    };
+
+    TimeBlock.prototype.changeEditableProperty = function (value) {
+        if (this._editableProperty === "width") {
+            this.setWidth(value);
+        } else if (this._editableProperty === "x") {
+            this.block.attr({ x: value });
+        }
     };
     
     global.Timeline = Timeline;
