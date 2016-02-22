@@ -83,6 +83,28 @@
             labels: this.paper.rect()
         };
 
+        this.eventDom = {
+            arrows: {
+                left: this.paper.rect(),
+                right: this.paper.rect()
+            },
+            line: this.paper.rect()
+        };
+        this.eventDom.body = this.paper.g(
+            this.eventDom.arrows.left.attr({
+                id: "left-arrow",
+                fill: "transparent"
+            }),
+            this.eventDom.arrows.right.attr({
+                id: "right-arrow",
+                fill: "transparent"
+            }),
+            this.eventDom.line.attr({
+                id: "line",
+                fill: "transparent"
+            })
+        );
+
         this.structure.arrows.left.data("settings", settings.arrows);
         this.structure.arrows.right.data("settings", settings.arrows);
         this.structure.ticks.data("settings", settings.ticks);
@@ -95,11 +117,26 @@
             text: "Test text"
         });
         
-        //this._bindEvents();
+        this._bindEvents();
         this.container.appendChild(this.paper.node);
         this.setSize(settings.width, settings.height);
     };
     
+    Timeline.prototype._time2coord = function (time) {
+
+        var startCoordTime = new Date(this.date.toISOString());
+        startCoordTime.setHours(0, 0, 0, 0);
+        return Math.round(this.units.minutes * (time.getTime() - startCoordTime.getTime()) / 60000);
+    };
+
+    Timeline.prototype._coord2time = function (coord) {
+
+        var minutes = Math.round((coord - this.model.viewPort.x) / this.units.minutes),
+            time = new Date(this.date.toISOString());
+        time.setMinutes(time.getMinutes() + minutes);
+        return time;
+    };
+
     Timeline.prototype._bindEvents = function () {
 
         this.paper.mousemove(this._onMouseMove.bind(this));
@@ -111,8 +148,10 @@
     Timeline.prototype._onMouseMove = function (evt) {
 
         switch (event.target) {
-            case this.timelineGroup.node:
-                this.tooltip.setPosition(evt.layerX, this.height / 2 + 50);
+            case this.eventDom.line.node:
+                var coord = evt.layerX - this.paper.node.getBoundingClientRect().left;
+                this.tooltip.setPosition(coord, 15);
+                this.tooltip.setText(this._coord2time(coord).toLocaleTimeString());
                 break;
         }
     };
@@ -120,7 +159,7 @@
     Timeline.prototype._onMouseOver = function (evt) {
 
         switch (event.target) {
-            case this.timelineGroup.node:
+            case this.eventDom.line.node:
                 this.tooltip.show();
                 break;
         }
@@ -129,7 +168,7 @@
     Timeline.prototype._onMouseOut = function (evt) {
 
         switch (event.target) {
-            case this.timelineGroup.node:
+            case this.eventDom.line.node:
                 this.tooltip.hide();
                 break;
         }
@@ -138,14 +177,14 @@
     Timeline.prototype._onClick = function () {
 
         switch (event.target) {
-            case this.structure.arrows.left.node:
+            case this.eventDom.arrows.left.node:
                 var nextHour = new Date(this.date.toISOString());
-                nextHour.setHours(nextHour.getHours() + 3);
+                nextHour.setHours(nextHour.getHours() - 3);
                 this.setDate(nextHour);
                 break;
-            case this.structure.arrows.right.node:
+            case this.eventDom.arrows.right.node:
                 var prevHour = new Date(this.date.toISOString());
-                prevHour.setHours(prevHour.getHours() - 3);
+                prevHour.setHours(prevHour.getHours() + 3);
                 this.setDate(prevHour);
                 break;
         }
@@ -153,21 +192,27 @@
     
     Timeline.prototype.setDate = function (date) {
 
-        var blocks = this.structure.blocks,
+        var start = this.units.shift,
+            shift = Math.round(this.units.minutes * (this.date.getTime() - date.getTime()) / 60000),
+            viewPort = this.structure.viewPort,
+            blocks = this.structure.blocks,
             ticks = this.structure.ticks.data("pattern"),
             labels = this.structure.labels.data("pattern");
             
         Snap.animate(
-            this.model.viewPort.x,
-            this.model.viewPort.x + Math.round(this.units.minutes * (date.getTime() - this.date.getTime()) / 60000),
+            start,
+            start + shift,
             function (value) {
-                pattern.attr({ x: value });
+                viewPort.parent().attr({ transform: "translate(" + -value + ")" });
+                blocks.attr({ transform: "translate(" + value + ")" });
                 ticks.attr({ x: value });
                 labels.attr({ x: value });
             },
             300
         );
+
         this.date = date;
+        this.units.shift += shift;
     };
     
     Timeline.prototype._buildLabelsPattern = function () {
@@ -249,11 +294,12 @@
             for (var i = 0; i < this.data.length; i++) {
                 var item = this.data[i];
                 if (!item.block) {
-                    item.block = this.structure.blocks.rect();
+                    var block = item.block = this.structure.blocks.rect();
+                    item.blockContainer = this.structure.blocks.g(block);
                     item.block.attr(settings.style);
                 }
                 blocks.push({
-                    x: this.model.viewPort.x + Math.round(this.units.minutes * (item.to.getTime() - this.date.getTime()) / 60000),
+                    x: this._time2coord(item.from),
                     y: this.height / 2 - 20,
                     height: 15,
                     width: Math.round(this.units.minutes * (item.to.getTime() - item.from.getTime()) / 60000),
@@ -288,14 +334,11 @@
         };
 
         var viewPort = this.model.viewPort;
-        var startDate = new Date(this.date.toISOString());
-        startDate.setHours(0, 0, 0, 0);
-
         this.units = {
             hour: viewPort.width / 12,
             minutes: viewPort.width / 720,
-            shift: Math.round(viewPort.width / 720 * (startDate.getTime() - this.date.getTime()) / 60000)
         };
+        this.units.shift = this._time2coord(this.date);
 
         this.model.line = {
             x1: viewPort.x, y1: viewPort.height / 2,
@@ -327,6 +370,23 @@
         };
         this.model.blocks = this._buildBlocks();
 
+        this.eventModel = {
+            arrows: {
+                left: {
+                    x: 0, y: 0,
+                    width: viewPort.x, height: viewPort.height
+                },
+                right: {
+                    x: viewPort.x + viewPort.width, y: 0,
+                    width: viewPort.x, height: viewPort.height
+                }
+            },
+            line: {
+                x: viewPort.x, y: viewPort.height / 2 - 5,
+                width: viewPort.width, height: this.model.ticks.height + 20
+            }
+        };
+
         this._buildTicksPattern();
         this._buildLabelsPattern();
     };
@@ -341,13 +401,25 @@
         this.structure.labels.attr(this.model.labels);
 
         this.structure.blocks.attr(this.model.viewPort);
+        this.structure.viewPort.parent().attr({ transform: "translate(" + -this.units.shift + ")" });
+        this.structure.blocks.attr({ transform: "translate(" + this.units.shift + ")" });
         for (var i = 0; i < this.data.length; i++) {
             if (this.data[i].block) {
-                this.data[i].block.attr(this.model.blocks[i]);
+                this.data[i].block.attr({
+                    width: this.model.blocks[i].width,
+                    height: this.model.blocks[i].height,
+                    fill: this.model.blocks[i].fill
+                });
+                this.data[i].blockContainer.attr({
+                    transform: "translate(" + [this.model.blocks[i].x, this.model.blocks[i].y].join() + ")"
+                });
             }
         }
+
+        this.eventDom.arrows.left.attr(this.eventModel.arrows.left);
+        this.eventDom.arrows.right.attr(this.eventModel.arrows.right);
+        this.eventDom.line.attr(this.eventModel.line);
     };
-    
 
     var TimelineTooltip = function (settings) {
 
@@ -378,6 +450,24 @@
     
     TimelineTooltip.prototype.setText = function (text) {
         
+        this.label.attr({ text: text });
+    };
+
+    var TimeBlock = function (settings) {
+        this.from = settings.from;
+        this.to = settings.to;
+        this.tag = settings.tag;
+        this.text = settings.text;
+        this.parent = settings.parent;
+        this.style = settings.style;
+        this.attr = settings.attr;
+        this.block = null;
+    };
+
+    TimeBlock.prototype.init = function () {
+        this.block = this.parent.rect()
+            .attr(this.style)
+            .attr(this.attr);
     };
     
     global.Timeline = Timeline;
