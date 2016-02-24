@@ -1,0 +1,25 @@
+{
+  "name": "timeline",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hrkv/timeline.git"
+  },
+  "author": "Khorkov A.G.",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hrkv/timeline/issues"
+  },
+  "homepage": "https://github.com/hrkv/timeline#readme",
+  "devDependencies": {
+    "browserify": "^13.0.0",
+    "gulp": "^3.9.1",
+    "gulp-util": "^3.0.7",
+    "vinyl-source-stream": "^1.1.0"
+  }
+}

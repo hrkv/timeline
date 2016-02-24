@@ -10,29 +10,7 @@
 	<h1 id="date"></h1>
     <div id="container" style="width: 600px; height: 100px;">
     </div>
-    <script src="../3side/snap.svg-min.js"></script>
-    <script src="timeline.js"></script>
-    <script>
-        document.getElementById("date").textContent = (new Date()).toLocaleDateString();
-
-        var from = new Date();
-        var to = new Date();
-        from.setHours(9);
-        to.setHours(12);
-      
-        new Timeline({
-            events: {
-                timeChanged: function (data) {
-                    document.getElementById("date").textContent = data.newValue.toLocaleDateString();
-                }
-            },
-            container: document.querySelector("#container"),
-            data: [{
-                from: from,
-                to: to,
-                color: "#F00"
-            }]
-        });
-    </script>
+    <script src="bower_components/Snap.svg/dist/snap.svg-min.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>

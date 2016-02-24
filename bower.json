@@ -1,0 +1,22 @@
+{
+  "name": "timeline",
+  "description": "",
+  "main": "app.js",
+  "authors": [
+    "Khorkov A.G."
+  ],
+  "license": "ISC",
+  "moduleType": [],
+  "homepage": "index.html",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "Snap.svg": "snap.svg#^0.4.1"
+  }
+}
