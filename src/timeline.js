@@ -8,7 +8,6 @@ var Timeline = function (settings) {
     
     if (!settings.container) {
         throw new Error("container is required");
-        return null;
     }
     
     this.container = settings.container;
@@ -18,8 +17,12 @@ var Timeline = function (settings) {
     this.data = [];
     this.structure = {};
     this.events = {};
-    this.init(settings);
+    this._init(settings);
     this.draw();
+
+    this.hoveredBlock = null;
+    this.activeBlock = null;
+    this.draggableBlock = null;
 };
 
 Timeline.defaults = {
@@ -58,14 +61,14 @@ Timeline.defaults = {
     },
     blocks: {
         style: {
-            fill: "#567",
+            fill: "#ccc",
             rx: 10,
             ry: 10
         }
     }
 };
 
-Timeline.prototype.init = function (settings) {
+Timeline.prototype._init = function (settings) {
     
     for (var prop in Timeline.defaults) {
         settings[prop] = Object.assign({}, settings[prop], Timeline.defaults[prop]);
@@ -137,11 +140,18 @@ Timeline.prototype.init = function (settings) {
     this.setSize(settings.width, settings.height);
 };
 
-Timeline.prototype.fireEvent = function (name, args) {
+Timeline.prototype._fireEvent = function (name, args) {
     if (this.events[name]) {
         for (var i = 0; i < this.events[name].length; i++)
             this.events[name][i](args);
     }
+};
+
+Timeline.prototype._fixEvent = function (evt) {
+
+    var bounding = this.paper.node.getBoundingClientRect();
+    evt.paperX = evt.layerX - bounding.left - this.units.shift;
+    evt.paperY = evt.layerY - bounding.top;
 };
 
 Timeline.prototype._time2coord = function (time) {
@@ -191,22 +201,22 @@ Timeline.prototype._bindEvents = function () {
 
 Timeline.prototype._onMouseMove = function (evt) {
 
-    switch (event.target.getAttribute("tag")) {
-        case "line":
-            var coord = evt.layerX - this.paper.node.getBoundingClientRect().left;
-            if (this.activeBlock && this.activeBlock.getIsEditable()) {
-                this.activeBlock.changeEditableProperty(coord - this.units.shift);
-            } else {
-                this.tooltip.setPosition(coord, 15);
-                this.tooltip.setText(this._time2string(this._coord2time(coord)));
-            }
-            break;
-        default:
-            var coord = evt.layerX - this.paper.node.getBoundingClientRect().left - this.units.shift;
-            if (this.activeBlock && this.activeBlock.getIsEditable()) {
-                this.activeBlock.changeEditableProperty(coord);
-            }
-            break;
+    this._fixEvent(evt);
+    if (this.activeBlock && this.activeBlock.getIsEditable()) {
+        if (this._editableStart) {
+            this.activeBlock.setStartPosition(evt.paperX);
+        } else if (this._editableEnd) {
+            this.activeBlock.setEndPosition(evt.paperX);
+        }
+    } else if (this.draggableBlock) {
+        this.draggableBlock.setPosition(this.draggableBlockStartPosition + evt.paperX - this.startDragPosition);
+    } else {
+        switch (event.target.getAttribute("tag")) {
+            case "line":
+                this.tooltip.setPosition(evt.paperX, 15);
+                this.tooltip.setText(this._time2string(this._coord2time(evt.paperX)));
+                break;
+        }
     }
 };
 
@@ -239,31 +249,37 @@ Timeline.prototype._onMouseDown = function (evt) {
     switch (event.target.getAttribute("tag")) {
         case "dragger-left":
             if (this.activeBlock) {
-                this.activeBlock.setPositionIsEditable(true);
+                this.activeBlock.setIsEditable(true);
+                this._editableEnd = false;
+                this._editableStart = true;
             }
             break;
         case "dragger-right":
             if (this.activeBlock) {
-                this.activeBlock.setWidthIsEditable(true);
+                this.activeBlock.setIsEditable(true);
+                this._editableEnd = true;
+                this._editableStart = false;
             }
             break;
+        case "block":
+            if (this.hoveredBlock) {
+                this.draggableBlock = this.hoveredBlock;
+                this.startDragPosition = evt.layerX - this.paper.node.getBoundingClientRect().left - this.units.shift;
+                this.draggableBlockStartPosition = this.draggableBlock.getPosition().x;
+            }
     }
 };
 
 Timeline.prototype._onMouseUp = function (evt) {
+    
+    if (this.activeBlock) {
+        this.activeBlock.setIsEditable(false);
+        this._editableEnd = true;
+        this._editableStart = false;
+    }
 
-    switch (event.target.getAttribute("tag")) {
-        case "dragger-left":
-        case "dragger-right":
-            if (this.activeBlock) {
-                this.activeBlock.setIsEditable(false);
-            }
-            break;
-        default:
-            if (this.activeBlock) {
-                this.activeBlock.setIsEditable(false);
-            }
-            break;
+    if (this.draggableBlock) {
+        this.draggableBlock = null;
     }
 };
 
@@ -298,31 +314,50 @@ Timeline.prototype._onDblClick = function (evt) {
 
     switch (event.target.getAttribute("tag")) {
         case "line":
-            this.addBlock(this._coord2time(evt.layerX - this.paper.node.getBoundingClientRect().left));
+            var from = this._coord2time(evt.layerX - this.paper.node.getBoundingClientRect().left),
+                to = this._coord2time(evt.layerX - this.paper.node.getBoundingClientRect().left + this.units.hour);
+            this.addBlock(from, to, true);
+            this._fireEvent("blockAdded", { 
+                from: from,
+                to: to
+            });
             break;
     }
 };
 
-Timeline.prototype.setDate = function (date) {
+/*
+* Set date in viewport
+* @param {date} date
+* @param {boolean} [animation=true] - using animation
+*/
+Timeline.prototype.setDate = function (date, animation) {
 
     var start = this.units.shift,
         shift = Math.round(this.units.minutes * (this.date.getTime() - date.getTime()) / 60000),
+        end = start + shift,
         viewPort = this.structure.viewPort,
         blocks = this.structure.blocks,
         ticks = this.structure.ticks.data("pattern"),
         labels = this.structure.labels.data("pattern");
-        
-    Snap.animate(
-        start,
-        start + shift,
-        function (value) {
-            viewPort.parent().attr({ transform: "translate(" + -value + ")" });
-            blocks.attr({ transform: "translate(" + value + ")" });
-            ticks.attr({ x: value });
-            labels.attr({ x: value });
-        },
-        300
-    );
+    
+    if (animation !== false) {
+        Snap.animate(
+            start,
+            end,
+            function (value) {
+                viewPort.parent().attr({ transform: "translate(" + -value + ")" });
+                blocks.attr({ transform: "translate(" + value + ")" });
+                ticks.attr({ x: value });
+                labels.attr({ x: value });
+            },
+            300
+        );
+    } else {
+        viewPort.parent().attr({ transform: "translate(" + -end + ")" });
+        blocks.attr({ transform: "translate(" + end + ")" });
+        ticks.attr({ x: end });
+        labels.attr({ x: end });
+    }
 
     var eventArgs = {
         oldValue: this.date,
@@ -331,7 +366,7 @@ Timeline.prototype.setDate = function (date) {
     this.date = date;
     this.units.shift += shift;
 
-    this.fireEvent("timeChanged", eventArgs);
+    this._fireEvent("timeChanged", eventArgs);
 };
 
 Timeline.prototype._buildLabelsPattern = function () {
@@ -404,52 +439,41 @@ Timeline.prototype._buildTicksPattern = function () {
     this.structure.ticks.data("pattern", pattern);
 };
 
-Timeline.prototype._buildBlocks = function () {
+Timeline.prototype._buildBlock = function (block) {
 
-    var blocks = [];
-
-    for (var i = 0; i < this.data.length; i++) {
-        var item = this.data[i];
-        blocks.push({
-            x: this._time2coord(item.from),
-            y: this.height / 2 - 30,
-            height: 25,
-            width: Math.round(this.units.minutes * (item.to.getTime() - item.from.getTime()) / 60000),
-            fill: item.color
-        });
-    }
-
-    return blocks;
-};
-
-Timeline.prototype.addBlock = function (from) {
-    var endTime = new Date(from.toISOString());
-    endTime.setHours(endTime.getHours() + 1);
-
-    this.data.push(new TimeBlock({
-        from: from,
-        to: endTime,
-        parent: this.structure.blocks,
-        style: Timeline.defaults.blocks.style
-    }));
-
-    this.model.blocks.push({
-        x: this._time2coord(from),
+    block.setAttributes({
+        x: this._time2coord(block.from),
         y: this.height / 2 - 30,
         height: 25,
-        width: Math.round(this.units.minutes * (endTime.getTime() - from.getTime()) / 60000)
+        width: Math.round(this.units.minutes * (block.to.getTime() - block.from.getTime()) / 60000),
+        fill: block.color
     });
-
-    for (var i = 0; i < this.data.length; i++) {
-        this.data[i].block.attr({
-            width: this.model.blocks[i].width,
-            height: this.model.blocks[i].height,
-            fill: this.model.blocks[i].fill
-        });
-        this.data[i].setPosition({ x: this.model.blocks[i].x, y: this.model.blocks[i].y });
-    }
 };
 
+/*
+* Add block on timeline
+* @param {date} from - start datetime range
+* @param {date} to - end datetime range
+*/
+Timeline.prototype.addBlock = function (from, to) {
+
+    var block = new TimeBlock({
+        from: from,
+        to: to,
+        parent: this.structure.blocks,
+        style: Timeline.defaults.blocks.style,
+        color: Timeline.defaults.blocks.style.fill
+    });
+
+    this.data.push(block);
+    this._buildBlock(block);
+};
+
+/*
+* Set component size
+* @param {number} [width]
+* @param {number} [height]
+*/
 Timeline.prototype.setSize = function (width, height) {
 
     this.width = width || this.container.offsetWidth;
@@ -510,7 +534,10 @@ Timeline.prototype._updateModel = function () {
             ].join(" ")
         }
     };
-    this.model.blocks = this._buildBlocks();
+
+    for (var i = 0; i < this.data.length; i++) {
+        this._buildBlock(this.data[i]);
+    }
 
     this.eventModel = {
         arrows: {
@@ -533,6 +560,9 @@ Timeline.prototype._updateModel = function () {
     this._buildLabelsPattern();
 };
 
+/*
+* Apply attributes to timeline elements
+*/
 Timeline.prototype.draw = function () {
 
     this.structure.viewPort.attr(this.model.viewPort);
@@ -545,14 +575,6 @@ Timeline.prototype.draw = function () {
     this.structure.blocks.attr(this.model.viewPort);
     this.structure.viewPort.parent().attr({ transform: "translate(" + -this.units.shift + ")" });
     this.structure.blocks.attr({ transform: "translate(" + this.units.shift + ")" });
-    for (var i = 0; i < this.data.length; i++) {
-        this.data[i].block.attr({
-            width: this.model.blocks[i].width,
-            height: this.model.blocks[i].height,
-            fill: this.model.blocks[i].fill
-        });
-        this.data[i].setPosition({ x: this.model.blocks[i].x, y: this.model.blocks[i].y });
-    }
 
     this.eventDom.arrows.left.attr(this.eventModel.arrows.left);
     this.eventDom.arrows.right.attr(this.eventModel.arrows.right);

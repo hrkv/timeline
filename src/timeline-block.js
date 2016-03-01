@@ -1,4 +1,5 @@
 
+
 var TimeBlock = function (settings) {
 
     this.from = settings.from;
@@ -15,10 +16,10 @@ var TimeBlock = function (settings) {
     this._editableProperty = null;
     this.markers = null;
     this.position = null;
-    this.init();
+    this._init();
 };
 
-TimeBlock.prototype.init = function () {
+TimeBlock.prototype._init = function () {
 
     this.block = this.parent.rect()
         .attr(this.style)
@@ -30,12 +31,57 @@ TimeBlock.prototype.init = function () {
     this.blockGroup = this.parent.g(this.block);
 };
 
-TimeBlock.prototype.setPosition = function (coord) {
+/*
+* Set block attributes
+* @param {object} - svg properties
+*/
+TimeBlock.prototype.setAttributes = function (attributes) {
 
-    this.position = coord;
-    this.blockGroup.attr({ transform: "translate(" + [coord.x, coord.y].join() + ")" });
+    this.attr = attributes;
+    this.block.attr({
+        width: this.attr.width,
+        height: this.attr.height,
+        fill: this.attr.fill
+    });
+    this.setPosition({ x: this.attr.x, y: this.attr.y });
 };
 
+/*
+* Get block attributes
+* @return {object} - svg properties
+*/
+TimeBlock.prototype.getAttributes = function () {
+    return this.attr;
+};
+  
+/* 
+* Set block position
+* @param {number|object} coord - number (as x coord) or object { x: number, y: number}
+*/
+TimeBlock.prototype.setPosition = function (coord) {
+
+    if (!isNaN(coord)) {
+      coord = { x: coord, y: this.position.y };
+    }
+
+    this.position = coord;
+    this.blockGroup.attr({
+        transform: "translate(" + [coord.x, coord.y].join() + ")"
+    });
+};
+
+/*
+* Get block position
+* @return {object} - block position in format { x: number, y: number}
+*/
+TimeBlock.prototype.getPosition = function () {
+    return this.position;
+};
+
+/*
+* Set width to block
+* @param {number} - value
+*/
 TimeBlock.prototype.setWidth = function (value) {
     this.block.attr({ width: value });
     if (this.markers) {
@@ -43,6 +89,11 @@ TimeBlock.prototype.setWidth = function (value) {
     }
 };
 
+/*
+* Set block state
+* When the block state is true, it's available to interaction (changing start/end range point)
+* @param {boolean} value
+*/
 TimeBlock.prototype.setIsActive = function (value) {
 
     this.isActive = value;
@@ -74,35 +125,44 @@ TimeBlock.prototype.setIsActive = function (value) {
     }
 };
 
+/*
+* Switch active block state
+*/
 TimeBlock.prototype.switchState = function () {
     this.setIsActive(!this.isActive);
 };
 
+/*
+* Set block is available for editing
+* @param {boolean} value
+*/
 TimeBlock.prototype.setIsEditable = function (value) {
     this.isEditable = value;
 };
 
-TimeBlock.prototype.setPositionIsEditable = function (value) {
-    this.setIsEditable(value);
-    this._editableProperty = value ? "x" : null;
-};
-
-TimeBlock.prototype.setWidthIsEditable = function (value) {
-    this.setIsEditable(value);
-    this._editableProperty = value ? "width" : null;
-};
-
+/*
+* Get block is available for editing
+* @return {boolean}
+*/
 TimeBlock.prototype.getIsEditable = function () {
     return this.isEditable;
 };
 
-TimeBlock.prototype.changeEditableProperty = function (value) {
-    if (this._editableProperty === "width") {
-        this.setWidth(Math.max(0, value - this.position.x));
-    } else if (this._editableProperty === "x") {
-        this.setWidth(Math.max(0, +this.block.attr("width") + (this.position.x - value)));
-        this.setPosition({ x: value, y: this.position.y });
-    }
+/*
+* Apply new value to start position of block
+* @param {number} value
+*/
+TimeBlock.prototype.setStartPosition = function (value) {
+    this.setWidth(Math.max(0, +this.block.attr("width") + (this.position.x - value)));
+    this.setPosition(value);
+};
+
+/*
+* Apply new value to end position of block
+* @param {number} value
+*/
+TimeBlock.prototype.setEndPosition = function (value) {
+    this.setWidth(Math.max(0, value - this.position.x));
 };
 
 module.exports = TimeBlock;
