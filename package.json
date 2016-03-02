@@ -19,7 +19,9 @@
   "devDependencies": {
     "browserify": "^13.0.0",
     "gulp": "^3.9.1",
+    "gulp-concat-css": "^2.2.0",
     "gulp-jshint": "^2.0.0",
+    "gulp-minify-css": "^1.2.4",
     "gulp-util": "^3.0.7",
     "vinyl-source-stream": "^1.1.0"
   }
